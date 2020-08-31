@@ -1,3 +1,12 @@
+# spectro-gee Project
+# Ignore image files
+*.tif*
+*.tiff*
+*.zip
+
+# Keep folders
+!.keep
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -127,3 +136,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+# PyCharm
+.idea
