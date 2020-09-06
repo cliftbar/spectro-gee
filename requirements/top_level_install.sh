@@ -1,0 +1,1 @@
+conda install requests earthengine-api numpy pillow rasterio

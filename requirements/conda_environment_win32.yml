@@ -1,0 +1,5 @@
+name: $CONDA_DEFAULT_ENV
+channels:
+  - defaults
+  - conda-forge
+prefix: C:\Users\cwbarclift\Miniconda3\envs\$CONDA_DEFAULT_ENV
