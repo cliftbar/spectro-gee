@@ -56,10 +56,10 @@ def fetch_data():
                                .limit(24)
 
     modis_image: Image = modis.first().select([ModisBands.band1_645nm.value, ModisBands.band2_859nm.value])
-    modis_image_reduced = modis_image.reduceResolution(
-        reducer=ee.Reducer.mean(),
-        bestEffort=True
-    )
+    # modis_image_reduced = modis_image.reduceResolution(
+    #     reducer=ee.Reducer.mean(),
+    #     bestEffort=True
+    # )
     # video_args: Dict = {
     #     "dimensions": 768,
     #     "region": chesapeake_bay_geometry,

@@ -7,6 +7,11 @@
 # Keep folders
 !.keep
 
+# secrets folder
+secrets/*.json
+secrets/*.yml
+secrets/*.yaml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

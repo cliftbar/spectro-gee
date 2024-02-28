@@ -1,11 +1,16 @@
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from time import sleep, time
-from typing import Dict, Optional, Any, Union
+from enum import Enum
+from time import time, sleep
+from typing import Dict
+# import os
 
+import ee
+import pytz
+from ee import ImageCollection, Geometry, Image
 import numpy
-from PIL.Image import open as pil_open, Image as pil_Image
+from numpy import ndarray, vectorize
 import rasterio
 
 import ee
@@ -17,9 +22,10 @@ from ee.batch import Export, Task
 from numpy import ndarray, vectorize
 from rasterio.io import DatasetWriter
 
-from utils import DataSets, download_file_from_url
+from utils import DataSets, download_file_from_url, download_file_from_gcs, download_fileset_from_gcs
 
 ee.Initialize()
+# os.putenv("GOOGLE_APPLICATION_CREDENTIALS", "secrets/export-access.json")
 
 
 tmp_dir: Path = Path("tmp")
@@ -32,11 +38,11 @@ class Landsat8Bands(Enum):
 
 
 def masker(image: Image):
-    cloudShadowBitMask = 1 << 3
-    cloudsBitMask = 1 << 5
+    cloud_shadow_bit_mask: int = 1 << 3
+    clouds_bit_mask: int = 1 << 5
     qa: Image = image.select('pixel_qa')
 
-    mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0).And(qa.bitwiseAnd(cloudsBitMask).eq(0))
+    mask = qa.bitwiseAnd(cloud_shadow_bit_mask).eq(0).And(qa.bitwiseAnd(clouds_bit_mask).eq(0))
     return image.updateMask(mask)
 
 
@@ -49,22 +55,10 @@ def fetch_data():
     landsat8: ImageCollection = ee.ImageCollection(DataSets.landsat8_reflectance_30m.value) \
                                   .filter(ee.Filter.date(start_date, end_date)) \
                                   .filterBounds(chesapeake_bay_geometry)
-                                  # .select([Landsat8Bands.band4_645nm.value])
-                                  # .limit(24)
 
-    landsat8_image: Image = landsat8.map(masker).median().select([Landsat8Bands.band4_645nm.value, Landsat8Bands.band5_859nm.value])
+    landsat8_image: Image = landsat8.map(masker).median().select([Landsat8Bands.band4_645nm.value,
+                                                                  Landsat8Bands.band5_859nm.value])
     scale_m: int = 30
-
-    url: str = landsat8_image.getDownloadURL({
-        "name": f"high_resolution_landsat8_{scale_m}m_{datetime.now().isoformat()}",
-        "region": chesapeake_bay_geometry,
-        "crs": "EPSG:3857",
-        "scale": scale_m,
-        "bands": [Landsat8Bands.band4_645nm.value, Landsat8Bands.band5_859nm.value],
-        "maxPixels": 210313503
-    })
-    print(url)
-    download_file_from_url(url, tmp_dir / Path("landsat8_image.zip"))
 
     # chesapeake_bay_geometry_high: Geometry = ee.Geometry.Rectangle([-77.08, 37.33, -76.9, 37.2])
 
@@ -77,22 +71,36 @@ def fetch_data():
     #     scale=scale_m,
     #     maxPixels=210313503
     # )
-    # start_time: int = int(time())
-    # export_task.start()
-    # while export_task.active():
-    #     print(export_task.status())
-    #     sleep(1)
-    # end_time: int = int(time())
-    # completion_status: Dict = export_task.status()
-    # print(f"Batch Time: {end_time - start_time}")
-    # if completion_status["state"] == "FAILED":
-    #     print(completion_status)
-    # else:
-    #     print(completion_status["destination_uris"])
-    #
-    #     i: int = 0
-    #     for uri in completion_status["destination_uris"]:
-    #         download_file_from_url(uri, tmp_dir / Path(f"high_resolution_landsat8_{scale_m}m_{i}.tif"))
+    filename: str = f"high_resolution_landsat8_{scale_m}m_{datetime.now(tz=pytz.utc).strftime('%Y%m%dT%H%M%Sz')}"
+    bucket: str = "xcb-gee-exports"
+    export_task: Task = Export.image.toCloudStorage(
+        image=landsat8_image,
+        bucket=bucket,
+        description=filename,
+        fileNamePrefix=filename,
+        region=chesapeake_bay_geometry,
+        crs="EPSG:3857",
+        scale=scale_m,
+        maxPixels=210313503,
+        fileFormat="GeoTIFF",
+        formatOptions={"cloudOptimized": True}
+    )
+
+    start_time: int = int(time())
+    export_task.start()
+    while export_task.active():
+        print(f"{int(time() - start_time)}s: {export_task.status()}")
+        sleep(5)
+    end_time: int = int(time())
+    completion_status: Dict = export_task.status()
+    print(f"Batch Time: {end_time - start_time}")
+    if completion_status["state"] == "FAILED":
+        print(completion_status)
+    else:
+        print(completion_status)
+
+        download_filename_prefix: Path = Path(f"{filename}")
+        download_fileset_from_gcs(bucket, download_filename_prefix, tmp_dir)
 
     print("finished")
 

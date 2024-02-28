@@ -1,6 +1,7 @@
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from time import time, sleep
 from typing import Dict, Optional, Any, Union, Set
 
 import numpy
@@ -12,7 +13,7 @@ from enum import Enum
 
 import requests
 from ee import ImageCollection, Geometry, Image
-from ee.batch import Export
+from ee.batch import Export, Task
 from numpy import ndarray, vectorize
 from rasterio.io import DatasetWriter
 
@@ -28,7 +29,7 @@ class DataSets(Enum):
     modis_terra_land_water = "MODIS/006/MOD44W"
 
 
-class ModisTerraLandWater(Enum):
+class ModisTerraLandWaterBands(Enum):
     water_mask = "water_mask"
     water_mask_QA = "water_mask_QA"
 
@@ -42,42 +43,36 @@ def fetch_data():
     modis: ImageCollection = ee.ImageCollection(DataSets.modis_terra_land_water.value) \
                                .filter(ee.Filter.date(start_date, end_date)) \
                                .filterBounds(chesapeake_bay_geometry) \
-                               .select([ModisTerraLandWater.water_mask.value, ModisTerraLandWater.water_mask_QA.value]) \
+                               .select([ModisTerraLandWaterBands.water_mask.value, ModisTerraLandWaterBands.water_mask_QA.value]) \
                                .limit(1)
 
-    modis_image: Image = modis.first().select([ModisTerraLandWater.water_mask.value])
-    modis_image_reduced = modis_image.reduceResolution(
-        reducer=ee.Reducer.mean(),
-        bestEffort=True
+    land_mask_image: Image = modis.first().select([ModisTerraLandWaterBands.water_mask.value])
+
+    scale_m: int = 300
+    filename: str = f"landmask_image_{scale_m}m_{datetime.now().isoformat()}"
+
+    export_task: Task = Export.image.toDrive(
+        image=land_mask_image,
+        folder="aquaculture-exports",
+        description=filename,
+        region=chesapeake_bay_geometry,
+        crs="EPSG:3857",
+        scale=scale_m,
+        maxPixels=210313503
     )
-    # video_args: Dict = {
-    #     "dimensions": 768,
-    #     "region": chesapeake_bay_geometry,
-    #     "framesPerSecond": 7,
-    #     "crs": "EPSG:3857",
-    #     "min": 10,
-    #     "max": 500,
-    #     "palette": ['blue', 'purple', 'cyan', 'green', 'yellow', 'red']
-    # }
-    #
-    # print(modis.getVideoThumbURL(video_args))
 
-    image_args: Dict = {
-        "name": "landmask_image",
-        "dimensions": 768,
-        "region": chesapeake_bay_geometry,
-        "crs": "EPSG:3857",
-        "bands": [ModisTerraLandWater.water_mask.value],
-        "min": 0,
-        "max": 1,
-        "palette": ['blue', 'purple', 'cyan', 'green', 'yellow', 'red']
-    }
-
-    url: str = modis_image_reduced.getDownloadURL(image_args)
-
-    print(url)
-    download_file_from_url(url, tmp_dir / Path("landmask_image.zip"))
-    unzip_file(tmp_dir / Path("landmask_image.zip"))
+    start_time: int = int(time())
+    export_task.start()
+    while export_task.active():
+        print(export_task.status())
+        sleep(1)
+    end_time: int = int(time())
+    completion_status: Dict = export_task.status()
+    print(f"Batch Time: {end_time - start_time}")
+    if completion_status["state"] == "FAILED":
+        print(completion_status)
+    else:
+        print(completion_status["destination_uris"])
 
     print("finished")
 
